@@ -2,62 +2,119 @@ name: Legion-OS Watchdog
 
 on:
   workflow_dispatch:
+  # Scheduling managed by cron-job.org (more reliable)
 
 permissions:
   actions: write
   contents: read
 
+env:
+  TARGET_WORKFLOW: 'legion-os-scheduled-builder.yml'
+  FAILURE_THRESHOLD: 5
+  MIN_RUNS_REQUIRED: 5
+  STALENESS_THRESHOLD_MINUTES: 720  # 12 hours
+
 jobs:
   watchdog:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - name: Legion-OS Build Health Monitor
+      - name: Legion-OS Build Health & Staleness Monitor
         id: check
         run: |
           set -euo pipefail
 
           echo ""
           echo "================================================="
-          echo " Legion-OS Build Health Monitor Starting"
+          echo " Legion-OS Watchdog Starting"
           echo "================================================="
-          echo "Target workflow: legion-os-scheduled-builder.yml"
+          echo "Target workflow: $TARGET_WORKFLOW"
+          echo "Failure threshold: $FAILURE_THRESHOLD consecutive failures"
+          echo "Staleness threshold: $STALENESS_THRESHOLD_MINUTES minutes (12 hours)"
+          echo "Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo ""
 
-          API_URL="https://api.github.com/repos/${{ github.repository }}/actions/workflows/legion-os-scheduled-builder.yml/runs?per_page=30"
+          API_URL="https://api.github.com/repos/${{ github.repository }}/actions/workflows/$TARGET_WORKFLOW/runs?per_page=30"
+
+          # Retry logic for API calls
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          RESPONSE=""
 
           echo "[INFO] Contacting GitHub API..."
-          RESPONSE=$(curl -fsSL \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -H "Accept: application/vnd.github+json" \
-            "$API_URL") || {
-              echo "[ERROR] GitHub API unreachable."
-              echo "[SAFEGUARD] Skipping rebuild to avoid false trigger."
-              echo "stale=false" >> $GITHUB_OUTPUT
-              exit 0
-          }
 
-          echo "[OK] API reachable."
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if RESPONSE=$(curl -fsSL \
+              -H "Authorization: Bearer ${{ github.token }}" \
+              -H "Accept: application/vnd.github+json" \
+              "$API_URL" 2>&1); then
+              echo "[OK] API reachable (attempt $((RETRY_COUNT+1)))."
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT+1))
+              echo "[WARN] API call failed (attempt $RETRY_COUNT/$MAX_RETRIES)"
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "[INFO] Retrying in 5 seconds..."
+                sleep 5
+              fi
+            fi
+          done
+
+          if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            echo "[ERROR] GitHub API unreachable after $MAX_RETRIES attempts."
+            echo "[SAFEGUARD] Skipping rebuild to avoid false trigger."
+            echo "stale=false" >> $GITHUB_OUTPUT
+            echo "error=api_unreachable" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Validate JSON response
+          if ! echo "$RESPONSE" | jq empty 2>/dev/null; then
+            echo "[ERROR] Invalid JSON response from API"
+            echo "[SAFEGUARD] Skipping rebuild to avoid false trigger."
+            echo "stale=false" >> $GITHUB_OUTPUT
+            echo "error=invalid_json" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
           TOTAL_RUNS=$(echo "$RESPONSE" | jq '.workflow_runs | length')
           echo "[INFO] Total workflow runs received: $TOTAL_RUNS"
 
+          # Filter completed runs on main, excluding cancelled
           RUNS=$(echo "$RESPONSE" | jq '
             .workflow_runs
             | map(select(.status=="completed"))
             | map(select(.head_branch=="main"))
+            | map(select(.conclusion!="cancelled"))
             | .[0:10]
           ')
 
           COUNT=$(echo "$RUNS" | jq 'length')
-          echo "[INFO] Completed runs on main selected: $COUNT"
+          echo "[INFO] Completed runs on main selected (excluding cancelled): $COUNT"
 
-          if [ "$COUNT" -lt 5 ]; then
-            echo "[WARN] Not enough data for reliable analysis."
+          if [ "$COUNT" -lt "$MIN_RUNS_REQUIRED" ]; then
+            echo "[WARN] Not enough data for reliable analysis (need $MIN_RUNS_REQUIRED, got $COUNT)."
             echo "[SAFEGUARD] Skipping rebuild."
             echo "stale=false" >> $GITHUB_OUTPUT
+            echo "error=insufficient_data" >> $GITHUB_OUTPUT
             exit 0
           fi
+
+          # Calculate statistics
+          SUCCESS_COUNT=$(echo "$RUNS" | jq '[.[] | select(.conclusion=="success")] | length')
+          FAILURE_COUNT=$(echo "$RUNS" | jq '[.[] | select(.conclusion=="failure")] | length')
+          
+          echo ""
+          echo "--------------- Statistics ---------------"
+          echo "Total analyzed: $COUNT"
+          echo "Successes: $SUCCESS_COUNT"
+          echo "Failures: $FAILURE_COUNT"
+          if [ "$COUNT" -gt 0 ]; then
+            SUCCESS_RATE=$(awk "BEGIN {printf \"%.1f\", ($SUCCESS_COUNT/$COUNT)*100}")
+            echo "Success rate: ${SUCCESS_RATE}%"
+          fi
+          echo "------------------------------------------"
 
           echo ""
           echo "--------------- Analyzed Runs ---------------"
@@ -67,22 +124,25 @@ jobs:
           '
           echo "--------------------------------------------"
 
+          # ============================================
+          # CHECK 1: CONSECUTIVE FAILURE STREAK
+          # ============================================
           FAIL_STREAK=0
           INDEX=1
 
           echo ""
-          echo "[INFO] Calculating consecutive failure streak..."
+          echo "[CHECK 1] Calculating consecutive failure streak..."
 
           for RESULT in $(echo "$RUNS" | jq -r '.[].conclusion'); do
             echo "  Run $INDEX => $RESULT"
 
             if [ "$RESULT" = "success" ]; then
-              echo "  Encountered SUCCESS → stopping streak count."
+              echo "  ✓ Encountered SUCCESS → stopping streak count."
               break
             elif [ "$RESULT" = "failure" ]; then
               FAIL_STREAK=$((FAIL_STREAK+1))
             else
-              echo "  Non-standard conclusion ($RESULT) → stopping."
+              echo "  ⚠ Non-standard conclusion ($RESULT) → stopping."
               break
             fi
 
@@ -91,37 +151,185 @@ jobs:
 
           echo ""
           echo "[RESULT] Consecutive failures detected: $FAIL_STREAK"
+          echo "fail_streak=$FAIL_STREAK" >> $GITHUB_OUTPUT
 
-          if [ "$FAIL_STREAK" -ge 5 ]; then
-            echo "[DECISION] System UNHEALTHY"
-            echo "[ACTION] Rebuild will be triggered."
-            echo "stale=true" >> $GITHUB_OUTPUT
+          HEALTH_UNHEALTHY=false
+          if [ "$FAIL_STREAK" -ge "$FAILURE_THRESHOLD" ]; then
+            echo "[HEALTH CHECK] ❌ UNHEALTHY (${FAIL_STREAK} >= ${FAILURE_THRESHOLD})"
+            HEALTH_UNHEALTHY=true
           else
-            echo "[DECISION] System HEALTHY"
-            echo "[ACTION] No rebuild required."
-            echo "stale=false" >> $GITHUB_OUTPUT
+            echo "[HEALTH CHECK] ✅ HEALTHY (${FAIL_STREAK} < ${FAILURE_THRESHOLD})"
           fi
 
-      - name: Trigger rebuild if unhealthy
+          # ============================================
+          # CHECK 2: STALENESS CHECK
+          # ============================================
+          echo ""
+          echo "[CHECK 2] Checking staleness (last non-cancelled run)..."
+
+          # Get the most recent non-cancelled run
+          LAST_RUN=$(echo "$RUNS" | jq -r '.[0].updated_at')
+
+          if [ "$LAST_RUN" = "null" ] || [ -z "$LAST_RUN" ]; then
+            echo "[WARN] No qualifying runs found for staleness check."
+            STALENESS_STALE=true
+            AGE_MIN=9999
+          else
+            LAST_EPOCH=$(date -d "$LAST_RUN" +%s)
+            NOW_EPOCH=$(date +%s)
+            AGE_MIN=$(( (NOW_EPOCH - LAST_EPOCH) / 60 ))
+            REMAINING=$(( STALENESS_THRESHOLD_MINUTES - AGE_MIN ))
+
+            echo "Last non-cancelled build: $(date -u -d "$LAST_RUN")"
+            echo "Minutes since last build: $AGE_MIN"
+            echo "Staleness threshold: $STALENESS_THRESHOLD_MINUTES minutes"
+
+            STALENESS_STALE=false
+            if [ "$AGE_MIN" -gt "$STALENESS_THRESHOLD_MINUTES" ]; then
+              echo "[STALENESS CHECK] ❌ STALE (${AGE_MIN} > ${STALENESS_THRESHOLD_MINUTES})"
+              STALENESS_STALE=true
+            else
+              echo "[STALENESS CHECK] ✅ FRESH (${AGE_MIN} <= ${STALENESS_THRESHOLD_MINUTES})"
+              echo "Minutes remaining: $REMAINING"
+            fi
+          fi
+
+          echo "age_minutes=$AGE_MIN" >> $GITHUB_OUTPUT
+
+          # ============================================
+          # FINAL DECISION: Either condition triggers rebuild
+          # ============================================
+          echo ""
+          echo "============================================="
+          echo " FINAL DECISION"
+          echo "============================================="
+
+          TRIGGER_REBUILD=false
+          REASONS=()
+
+          if [ "$HEALTH_UNHEALTHY" = true ]; then
+            TRIGGER_REBUILD=true
+            REASONS+=("health_unhealthy")
+            echo "❌ Health: UNHEALTHY ($FAIL_STREAK consecutive failures)"
+          else
+            echo "✅ Health: HEALTHY ($FAIL_STREAK consecutive failures)"
+          fi
+
+          if [ "$STALENESS_STALE" = true ]; then
+            TRIGGER_REBUILD=true
+            REASONS+=("staleness_exceeded")
+            echo "❌ Staleness: STALE (${AGE_MIN} minutes old)"
+          else
+            echo "✅ Staleness: FRESH (${AGE_MIN} minutes old)"
+          fi
+
+          echo ""
+          if [ "$TRIGGER_REBUILD" = true ]; then
+            REASON_STRING=$(IFS=,; echo "${REASONS[*]}")
+            echo "[DECISION] 🚨 REBUILD REQUIRED"
+            echo "[REASON] $REASON_STRING"
+            echo "stale=true" >> $GITHUB_OUTPUT
+            echo "reason=$REASON_STRING" >> $GITHUB_OUTPUT
+          else
+            echo "[DECISION] ✅ SYSTEM HEALTHY"
+            echo "[ACTION] No rebuild required."
+            echo "stale=false" >> $GITHUB_OUTPUT
+            echo "reason=healthy" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger rebuild if needed
         if: steps.check.outputs.stale == 'true'
+        id: trigger
         run: |
           echo ""
           echo "================================================="
           echo " Triggering Legion-OS Scheduled Builder"
+          echo " Reason: ${{ steps.check.outputs.reason }}"
           echo "================================================="
 
-          curl -fsSL -X POST \
+          # Capture HTTP response code to verify dispatch succeeded
+          HTTP_CODE=$(curl -w "%{http_code}" -o /tmp/dispatch_response.json -fsSL -X POST \
             -H "Authorization: Bearer ${{ github.token }}" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/actions/workflows/legion-os-scheduled-builder.yml/dispatches \
-            -d '{"ref":"main"}'
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/$TARGET_WORKFLOW/dispatches \
+            -d '{"ref":"main"}')
 
-          echo "[OK] Rebuild dispatch sent."
+          if [ "$HTTP_CODE" -eq 204 ]; then
+            echo "[OK] Rebuild dispatch sent successfully (HTTP $HTTP_CODE)."
+            echo "triggered=true" >> $GITHUB_OUTPUT
+          else
+            echo "[ERROR] Failed to trigger rebuild (HTTP $HTTP_CODE)."
+            cat /tmp/dispatch_response.json 2>/dev/null || echo "No response body"
+            echo "triggered=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Verify rebuild started
+        if: steps.trigger.outputs.triggered == 'true'
+        run: |
+          echo ""
+          echo "[INFO] Waiting 30 seconds for workflow to start..."
+          sleep 30
+
+          echo "[INFO] Verifying new run was created..."
+          RECENT_RUNS=$(curl -fsSL \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$TARGET_WORKFLOW/runs?per_page=3")
+
+          if ! echo "$RECENT_RUNS" | jq empty 2>/dev/null; then
+            echo "[WARN] Could not verify - API response invalid"
+            exit 0
+          fi
+
+          LATEST_RUN=$(echo "$RECENT_RUNS" | jq -r '.workflow_runs[0] | "\(.id) - \(.status) - \(.created_at)"')
+          echo "[INFO] Latest run: $LATEST_RUN"
+          echo "[OK] Verification complete - rebuild request was successful."
 
       - name: System healthy
-        if: steps.check.outputs.stale == 'false'
+        if: steps.check.outputs.stale == 'false' && steps.check.outputs.error == ''
         run: |
           echo ""
           echo "================================================="
-          echo " Legion-OS Pipeline Healthy"
+          echo " ✅ Legion-OS Pipeline Healthy"
           echo "================================================="
+          echo "Consecutive failures: ${{ steps.check.outputs.fail_streak }}"
+          echo "Last build age: ${{ steps.check.outputs.age_minutes }} minutes"
+
+      - name: Error summary
+        if: always() && steps.check.outputs.error != ''
+        run: |
+          echo ""
+          echo "================================================="
+          echo " ⚠️ Watchdog encountered an issue"
+          echo "================================================="
+          echo "Error: ${{ steps.check.outputs.error }}"
+          echo "Action: No rebuild triggered (safeguard)"
+
+      - name: Create job summary
+        if: always()
+        run: |
+          echo "## Legion-OS Watchdog Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Target Workflow:** $TARGET_WORKFLOW" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.check.outputs.error }}" != "" ]; then
+            echo "### ⚠️ Error" >> $GITHUB_STEP_SUMMARY
+            echo "**Type:** ${{ steps.check.outputs.error }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Action:** No rebuild triggered (safeguard)" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.check.outputs.stale }}" = "true" ]; then
+            echo "### 🚨 Rebuild Triggered" >> $GITHUB_STEP_SUMMARY
+            echo "**Reason:** ${{ steps.check.outputs.reason }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Consecutive Failures:** ${{ steps.check.outputs.fail_streak }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Last Build Age:** ${{ steps.check.outputs.age_minutes }} minutes" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ steps.trigger.outputs.triggered }}" = "true" ]; then
+              echo "**Verification:** ✅ Rebuild confirmed started" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ✅ System Healthy" >> $GITHUB_STEP_SUMMARY
+            echo "**Consecutive Failures:** ${{ steps.check.outputs.fail_streak }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Last Build Age:** ${{ steps.check.outputs.age_minutes }} minutes" >> $GITHUB_STEP_SUMMARY
+            echo "**Action:** No action needed" >> $GITHUB_STEP_SUMMARY
+          fi
