@@ -1,4 +1,4 @@
-name: Zero-OS (automatic build images)
+name: Legion-OS (automatic build images)
 on:
   push:
     paths-ignore:
@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   bluebuild:
-    name: Zero-OS Automatic Build
+    name: Legion-OS Automatic Build
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,7 +27,7 @@ jobs:
           - 0-nvidia-hybrid.yml
 
     steps:
-      - name: Zero-OS build/update (automatic)
+      - name: Legion-OS build/update (automatic)
         uses: blue-build/github-action@v1.11
         with:
           recipe: ${{ matrix.recipe }}

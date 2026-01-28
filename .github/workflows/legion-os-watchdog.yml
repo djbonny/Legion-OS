@@ -16,8 +16,8 @@ jobs:
         id: check
         run: |
           echo "=========================================="
-          echo " Zero-OS Watchdog Starting"
-          echo " Monitoring workflow: zero-os-scheduled-build.yml"
+          echo " Legion-OS Watchdog Starting"
+          echo " Monitoring workflow: legion-os-scheduled-build.yml"
           echo "=========================================="
           echo ""
 
@@ -86,7 +86,7 @@ jobs:
         run: |
           echo ""
           echo "=========================================="
-          echo " Triggering Zero-OS rebuild"
+          echo " Triggering Legion-OS rebuild"
           echo "=========================================="
 
           curl -X POST \

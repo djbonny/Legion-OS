@@ -1,4 +1,4 @@
-name: Zero-OS (scheduled build images)
+name: Legion-OS (scheduled build images)
 
 on:
   ### Builds are managed by cron-job.org ( much more reliable ) ###
@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   bluebuild:
-    name: Zero-OS Scheduled Build
+    name: Legion-OS Scheduled Build
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -29,11 +29,11 @@ jobs:
       - name: Announce scheduled build
         run: |
           echo "=========================================="
-          echo " Zero-OS Scheduled Build Starting"
+          echo " Legion-OS Scheduled Build Starting"
           echo " Triggered via workflow_dispatch"
           echo "=========================================="
 
-      - name: Zero-OS build/update (scheduled)
+      - name: Legion-OS build/update (scheduled)
         uses: blue-build/github-action@v1.11
         with:
           recipe: ${{ matrix.recipe }}
