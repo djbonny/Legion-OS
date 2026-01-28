@@ -1,0 +1,107 @@
+name: Zero-OS Watchdog
+
+on:
+  workflow_dispatch:
+  ### watchdog runs are managed by cron-job.org ( much more reliable ) ###
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Watchdog heartbeat check
+        id: check
+        run: |
+          echo "=========================================="
+          echo " Zero-OS Watchdog Starting"
+          echo " Monitoring workflow: zero-os-scheduled-build.yml"
+          echo "=========================================="
+          echo ""
+
+          echo "Fetching recent builder workflow runs..."
+
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/zero-os-scheduled-build.yml/runs?per_page=5")
+
+          echo ""
+          echo "Last 3 builder workflow runs:"
+          echo "------------------------------------------"
+
+          echo "$RESPONSE" | jq -r '
+            .workflow_runs
+            | map(select(.event=="workflow_dispatch"))
+            | .[0:3]
+            | .[]
+            | "Run ID: \(.id) | Commit: \(.head_sha) | Event: \(.event) | Updated: \(.updated_at)"
+          '
+
+          LAST_RUN=$(echo "$RESPONSE" | jq -r '
+            .workflow_runs
+            | map(select(.event=="workflow_dispatch"))
+            | .[0].updated_at
+          ')
+
+          if [ "$LAST_RUN" = "null" ] || [ -z "$LAST_RUN" ]; then
+            echo ""
+            echo "⚠ No qualifying builder workflow runs found."
+            echo "no_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          LAST_EPOCH=$(date -d "$LAST_RUN" +%s)
+          NOW_EPOCH=$(date +%s)
+
+          AGE_MIN=$(( (NOW_EPOCH - LAST_EPOCH) / 60 ))
+          THRESHOLD=720
+          REMAINING=$(( THRESHOLD - AGE_MIN ))
+
+          echo ""
+          echo "------------------------------------------"
+          echo "Current time UTC:      $(date -u)"
+          echo "Current time Kolkata:  $(TZ=Asia/Kolkata date)"
+          echo ""
+          echo "Last activity UTC:     $(date -u -d "$LAST_RUN")"
+          echo "Last activity Kolkata: $(TZ=Asia/Kolkata date -d "$LAST_RUN")"
+          echo ""
+          echo "Minutes since last activity: $AGE_MIN"
+          echo "Watchdog threshold:          $THRESHOLD minutes"
+
+          if [ "$AGE_MIN" -gt "$THRESHOLD" ]; then
+            echo "Decision: ❌ STALE"
+            echo "Watchdog will trigger rebuild now."
+            echo "stale=true" >> $GITHUB_OUTPUT
+          else
+            echo "Decision: ✅ HEALTHY"
+            echo "Minutes remaining before trigger: $REMAINING"
+            echo "stale=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger rebuild if needed
+        if: steps.check.outputs.stale == 'true' || steps.check.outputs.no_run == 'true'
+        run: |
+          echo ""
+          echo "=========================================="
+          echo " Triggering Zero-OS rebuild"
+          echo "=========================================="
+
+          curl -X POST \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/zero-os-scheduled-build.yml/dispatches \
+            -d '{"ref":"main"}'
+
+          echo "Rebuild request sent."
+
+      - name: No action required
+        if: steps.check.outputs.stale == 'false'
+        run: |
+          echo ""
+          echo "=========================================="
+          echo " No rebuild required"
+          echo " System healthy"
+          echo "=========================================="
